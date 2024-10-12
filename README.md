@@ -1,2 +1,2 @@
 # mini-kafka
-Reimplement essentials of Kafka
+Implement a mini version of Kafka for learning purpose
