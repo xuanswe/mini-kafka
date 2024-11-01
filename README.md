@@ -1,2 +1,3 @@
 # mini-kafka
-A mini version of Kafka
+
+This project implements a mini version of [Kafka](https://github.com/apache/kafka).
