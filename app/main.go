@@ -1,42 +1,56 @@
 package main
 
 import (
-	"github.com/rs/zerolog"
+	"context"
 	"github.com/rs/zerolog/log"
-	"github.com/xuanswe/mini-kafka/internal/server"
+	"github.com/xuanswe/mini-kafka/internal/support"
+	"github.com/xuanswe/mini-kafka/kafka"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
 func main() {
-	setupLogger()
+	support.SetupLogger()
 
-	kafkaConfig := server.KafkaServerConfig{
-		Host: "0.0.0.0",
-		Port: "9092",
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Capture OS interrupted signals
+	interrupts := make(chan os.Signal, 1)
+	signal.Notify(interrupts, syscall.SIGINT, syscall.SIGTERM)
+
+	kafkaConfig := kafka.ServerConfig{
+		Host:            "0.0.0.0",
+		Port:            "9092",
+		ConnIdleTimeout: 1 * time.Minute,
 	}
-	kafkaServer, err := server.NewKafkaServer(kafkaConfig)
+	kafkaServer, err := kafka.NewServer(kafkaConfig)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Error creating Kafka server")
+		log.Fatal().Err(err).Msg("Error creating kafka server")
 	}
 
-	if err := kafkaServer.Start(); err != nil {
-		log.Fatal().Err(err).Msg("Error starting Kafka server")
-	}
-
-	defer func() {
-		if err := kafkaServer.Close(); err != nil {
-			log.Fatal().Err(err).Msg("Error closing Kafka server")
+	go func() {
+		if err := kafkaServer.Start(); err != nil {
+			log.Fatal().Err(err).Msg("Error starting kafka server")
 		}
+
+		cancel()
 	}()
-}
 
-func setupLogger() {
-	zerolog.TimeFieldFormat = time.RFC3339Nano
+	// Handle OS interrupted signals in a separated goroutine
+	go func() {
+		sig := <-interrupts
+		log.Info().Msgf("Signal intercepted %v", sig)
 
-	// Set the output to console
-	log.Logger = log.Output(zerolog.ConsoleWriter{
-		Out:        os.Stdout,
-		TimeFormat: time.RFC3339Nano,
-	})
+		if err := kafkaServer.Shutdown(); err != nil {
+			log.Fatal().Err(err).Msg("Error closing kafka server")
+		}
+
+		cancel()
+	}()
+
+	// Wait for the shutdown flow to send true
+	<-ctx.Done()
 }
